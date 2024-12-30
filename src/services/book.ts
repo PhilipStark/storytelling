@@ -1,7 +1,18 @@
 import { BookGenerationConfig, Book, GenerationProgress } from '../types/book';
 
+interface BookConfig {
+  title: string;
+  description: string;
+  genre: string;
+  target_audience: string;
+  style: string;
+  tone: string;
+  length: string;
+}
+
 class BookService {
   private baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  private apiUrl = '/.netlify/functions/api';
 
   async createBook(config: BookGenerationConfig): Promise<Book> {
     try {
@@ -23,6 +34,27 @@ class BookService {
     } catch (error) {
       console.error('Error creating book:', error);
       throw new Error('Failed to create book. Please try again.');
+    }
+  }
+
+  async createBookWithApi(config: BookConfig) {
+    try {
+      const response = await fetch(`${this.apiUrl}/books/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: config.description }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate book');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error in createBook:', error);
+      throw error;
     }
   }
 
@@ -62,6 +94,19 @@ class BookService {
     } catch (error) {
       console.error('Error getting book status:', error);
       throw new Error('Failed to get book status. Please try again.');
+    }
+  }
+
+  async getBook(id: string) {
+    try {
+      const response = await fetch(`${this.apiUrl}/books/${id}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch book');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error in getBook:', error);
+      throw error;
     }
   }
 

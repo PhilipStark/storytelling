@@ -1,10 +1,15 @@
 import { Handler } from '@netlify/functions'
 import { createClient } from '@supabase/supabase-js'
+import OpenAI from 'openai'
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 )
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+})
 
 export const handler: Handler = async (event, context) => {
   // Enable CORS
@@ -28,6 +33,63 @@ export const handler: Handler = async (event, context) => {
 
     // Handle different API endpoints
     switch (path) {
+      case 'books/generate':
+        if (!body.prompt) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Prompt is required' })
+          }
+        }
+
+        try {
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4",
+            messages: [
+              {
+                role: "system",
+                content: "You are a creative writing assistant specialized in generating engaging book outlines and stories."
+              },
+              {
+                role: "user",
+                content: `Create a detailed book outline for the following idea: ${body.prompt}`
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 2000
+          })
+
+          const bookOutline = completion.choices[0].message.content
+
+          // Store in Supabase
+          const { data: book, error } = await supabase
+            .from('books')
+            .insert([
+              {
+                prompt: body.prompt,
+                outline: bookOutline,
+                status: 'completed'
+              }
+            ])
+            .select()
+            .single()
+
+          if (error) throw error
+
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify(book)
+          }
+        } catch (error) {
+          console.error('Book generation error:', error)
+          return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ error: 'Failed to generate book' })
+          }
+        }
+
       case 'metrics/agents':
         const { data: metrics } = await supabase
           .from('agent_metrics')
