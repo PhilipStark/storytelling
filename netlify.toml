@@ -1,11 +1,12 @@
 [build]
-  command = "npm run build"
+  command = "npm install && npm run build"
   publish = "dist"
   functions = "netlify/functions"
 
 [dev]
   command = "npm run dev"
   port = 3000
+  targetPort = 8000
 
 [[redirects]]
   from = "/api/*"
@@ -19,3 +20,4 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  NPM_FLAGS = "--legacy-peer-deps"
