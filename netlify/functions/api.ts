@@ -169,6 +169,15 @@ export const handler: Handler = async (event, context) => {
   }
 
   try {
+    console.log('Event path:', event.path);
+    console.log('Event body:', event.body);
+    console.log('Environment variables present:', {
+      hasSupabaseUrl: !!process.env.SUPABASE_URL,
+      hasSupabaseKey: !!process.env.SUPABASE_SERVICE_KEY,
+      hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+      hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY
+    });
+
     const path = event.path.replace('/.netlify/functions/api/', '')
     const body = event.body ? JSON.parse(event.body) : {}
 
@@ -184,36 +193,49 @@ export const handler: Handler = async (event, context) => {
         }
 
         try {
+          console.log('Starting book generation process...');
+          
           // Transform user prompt with PROMPT_ENGINEER
+          console.log('Calling PROMPT_ENGINEER...');
           const enhancedPrompt = await generateWithAgent(
             `Transform this simple book idea into a sophisticated literary prompt: ${body.prompt}`,
             'PROMPT_ENGINEER'
           )
+          console.log('Enhanced prompt created:', enhancedPrompt);
 
           // Generate outline with OUTLINER
+          console.log('Calling OUTLINER...');
           const outline = await generateWithAgent(
             `Create a masterful book outline based on this sophisticated creative brief: ${enhancedPrompt}`,
             'OUTLINER'
           )
+          console.log('Outline created');
 
           // Generate content with WRITER
+          console.log('Calling WRITER...');
           const content = await generateWithAgent(
             `Create literary prose of the highest caliber following this outline. Aim for a masterpiece: ${outline}`,
             'WRITER'
           )
+          console.log('Content created');
 
           // Edit content with EDITOR
+          console.log('Calling EDITOR...');
           const editedContent = await generateWithAgent(
             `Elevate this literary work to its highest potential, ensuring it maintains consistent excellence throughout: ${content}`,
             'EDITOR'
           )
+          console.log('Content edited');
 
           // Review with CRITIC
+          console.log('Calling CRITIC...');
           const review = await generateWithAgent(
             `Analyze this work's literary merit with the highest critical standards. Focus on elements that justify a 9.5+ rating: ${editedContent}`,
             'CRITIC'
           )
+          console.log('Review created');
 
+          console.log('Saving to Supabase...');
           // Store in Supabase
           const { data: book, error } = await supabase
             .from('books')
@@ -230,8 +252,12 @@ export const handler: Handler = async (event, context) => {
             .select()
             .single()
 
-          if (error) throw error
+          if (error) {
+            console.error('Supabase error:', error);
+            throw error;
+          }
 
+          console.log('Book generation completed successfully');
           return {
             statusCode: 200,
             headers,
@@ -242,7 +268,10 @@ export const handler: Handler = async (event, context) => {
           return {
             statusCode: 500,
             headers,
-            body: JSON.stringify({ error: 'Failed to generate book' })
+            body: JSON.stringify({ 
+              error: 'Failed to generate book',
+              details: error.message
+            })
           }
         }
 
