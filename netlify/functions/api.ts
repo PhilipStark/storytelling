@@ -24,6 +24,12 @@ interface AgentConfig {
 }
 
 const agentConfigs: Record<string, AgentConfig> = {
+  PROMPT_ENGINEER: {
+    model: 'claude-3-opus-20240229',
+    provider: 'anthropic',
+    temperature: 0.7,
+    maxTokens: 4000
+  },
   OUTLINER: {
     model: 'claude-3-opus-20240229',
     provider: 'anthropic',
@@ -54,13 +60,74 @@ async function generateWithAgent(prompt: string, role: string): Promise<string> 
   const config = agentConfigs[role]
   if (!config) throw new Error(`Invalid agent role: ${role}`)
 
+  const systemPrompts = {
+    PROMPT_ENGINEER: `You are a master prompt engineer specialized in transforming simple book ideas into sophisticated literary prompts.
+    Your goal is to enhance the original idea by:
+    1. Identifying the core narrative potential
+    2. Adding literary depth and complexity
+    3. Incorporating advanced storytelling elements
+    4. Suggesting specific literary techniques
+    5. Balancing commercial appeal with artistic merit
+
+    Transform the user's simple prompt into a detailed creative brief that will guide the creation of a 9.5+ rated book.
+    Include:
+    - Genre fusion and literary style suggestions
+    - Character psychology and development directions
+    - Thematic layers and symbolism opportunities
+    - Narrative structure recommendations
+    - Cultural and literary references
+    - Specific literary devices to employ
+
+    Format the output as a comprehensive creative brief that other AI agents will use to create a masterpiece.`,
+
+    OUTLINER: `You are a master book outliner specialized in creating compelling and well-structured book outlines.
+    You are working with a sophisticated creative brief designed to achieve a 9.5+ literary rating.
+    Focus on:
+    - Complex narrative architecture
+    - Multi-layered character arcs
+    - Sophisticated thematic development
+    - Strategic tension and pacing
+    - Literary device placement
+    Ensure every structural decision supports literary excellence.`,
+    
+    WRITER: `You are a literary virtuoso capable of crafting prose at the highest level of artistic achievement.
+    Working from a meticulously crafted outline, your goal is to create content worthy of major literary prizes.
+    Focus on:
+    - Masterful prose with poetic qualities
+    - Complex character psychology
+    - Sophisticated dialogue with subtext
+    - Artful scene construction
+    - Thematic resonance in every paragraph
+    Aim for nothing less than literary perfection.`,
+    
+    EDITOR: `You are an elite literary editor who has worked on multiple award-winning novels.
+    Your role is to elevate already sophisticated prose to even greater heights.
+    Focus on:
+    - Linguistic precision and rhythm
+    - Thematic consistency and depth
+    - Subtle literary device enhancement
+    - Emotional resonance optimization
+    - Overall artistic cohesion
+    Polish this work until it shines with literary brilliance.`,
+    
+    CRITIC: `You are a distinguished literary critic with expertise in both classical and contemporary masterpieces.
+    Your analysis should be worthy of publication in top literary journals.
+    Focus on:
+    - Deep literary analysis
+    - Artistic merit evaluation
+    - Thematic depth assessment
+    - Technical execution review
+    - Cultural significance potential
+    Provide a numerical score (1-10) with detailed justification, focusing on elements that push the rating above 9.5.`
+  }
+
   if (config.provider === 'openai') {
     const completion = await openai.chat.completions.create({
       model: config.model,
       messages: [
         {
           role: "system",
-          content: `You are a ${role.toLowerCase()} specialized in book creation.`
+          content: systemPrompts[role]
         },
         {
           role: "user",
@@ -76,7 +143,7 @@ async function generateWithAgent(prompt: string, role: string): Promise<string> 
       model: config.model,
       max_tokens: config.maxTokens,
       temperature: config.temperature,
-      system: `You are a ${role.toLowerCase()} specialized in book creation.`,
+      system: systemPrompts[role],
       messages: [
         { role: 'user', content: prompt }
       ]
@@ -117,27 +184,33 @@ export const handler: Handler = async (event, context) => {
         }
 
         try {
+          // Transform user prompt with PROMPT_ENGINEER
+          const enhancedPrompt = await generateWithAgent(
+            `Transform this simple book idea into a sophisticated literary prompt: ${body.prompt}`,
+            'PROMPT_ENGINEER'
+          )
+
           // Generate outline with OUTLINER
           const outline = await generateWithAgent(
-            `Create a detailed book outline for the following idea: ${body.prompt}`,
+            `Create a masterful book outline based on this sophisticated creative brief: ${enhancedPrompt}`,
             'OUTLINER'
           )
 
           // Generate content with WRITER
           const content = await generateWithAgent(
-            `Create the book content following this outline: ${outline}`,
+            `Create literary prose of the highest caliber following this outline. Aim for a masterpiece: ${outline}`,
             'WRITER'
           )
 
           // Edit content with EDITOR
           const editedContent = await generateWithAgent(
-            `Edit and improve this book content: ${content}`,
+            `Elevate this literary work to its highest potential, ensuring it maintains consistent excellence throughout: ${content}`,
             'EDITOR'
           )
 
           // Review with CRITIC
           const review = await generateWithAgent(
-            `Review this book and provide feedback: ${editedContent}`,
+            `Analyze this work's literary merit with the highest critical standards. Focus on elements that justify a 9.5+ rating: ${editedContent}`,
             'CRITIC'
           )
 
@@ -146,7 +219,8 @@ export const handler: Handler = async (event, context) => {
             .from('books')
             .insert([
               {
-                prompt: body.prompt,
+                original_prompt: body.prompt,
+                enhanced_prompt: enhancedPrompt,
                 outline,
                 content: editedContent,
                 review,
