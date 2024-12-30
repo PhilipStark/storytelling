@@ -1,6 +1,7 @@
 import { Handler } from '@netlify/functions'
 import { createClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
+import Anthropic from '@anthropic-ai/sdk'
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -10,6 +11,79 @@ const supabase = createClient(
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY!
+})
+
+interface AgentConfig {
+  model: string
+  provider: 'openai' | 'anthropic'
+  temperature: number
+  maxTokens: number
+}
+
+const agentConfigs: Record<string, AgentConfig> = {
+  OUTLINER: {
+    model: 'claude-3-opus-20240229',
+    provider: 'anthropic',
+    temperature: 0.7,
+    maxTokens: 4000
+  },
+  WRITER: {
+    model: 'claude-3-opus-20240229',
+    provider: 'anthropic',
+    temperature: 0.8,
+    maxTokens: 8000
+  },
+  EDITOR: {
+    model: 'gpt-4',
+    provider: 'openai',
+    temperature: 0.7,
+    maxTokens: 2000
+  },
+  CRITIC: {
+    model: 'claude-3-opus-20240229',
+    provider: 'anthropic',
+    temperature: 0.7,
+    maxTokens: 4000
+  }
+}
+
+async function generateWithAgent(prompt: string, role: string): Promise<string> {
+  const config = agentConfigs[role]
+  if (!config) throw new Error(`Invalid agent role: ${role}`)
+
+  if (config.provider === 'openai') {
+    const completion = await openai.chat.completions.create({
+      model: config.model,
+      messages: [
+        {
+          role: "system",
+          content: `You are a ${role.toLowerCase()} specialized in book creation.`
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: config.temperature,
+      max_tokens: config.maxTokens
+    })
+    return completion.choices[0].message.content || ''
+  } else {
+    const message = await anthropic.messages.create({
+      model: config.model,
+      max_tokens: config.maxTokens,
+      temperature: config.temperature,
+      system: `You are a ${role.toLowerCase()} specialized in book creation.`,
+      messages: [
+        { role: 'user', content: prompt }
+      ]
+    })
+    return message.content[0].text
+  }
+}
 
 export const handler: Handler = async (event, context) => {
   // Enable CORS
@@ -43,23 +117,29 @@ export const handler: Handler = async (event, context) => {
         }
 
         try {
-          const completion = await openai.chat.completions.create({
-            model: "gpt-4",
-            messages: [
-              {
-                role: "system",
-                content: "You are a creative writing assistant specialized in generating engaging book outlines and stories."
-              },
-              {
-                role: "user",
-                content: `Create a detailed book outline for the following idea: ${body.prompt}`
-              }
-            ],
-            temperature: 0.7,
-            max_tokens: 2000
-          })
+          // Generate outline with OUTLINER
+          const outline = await generateWithAgent(
+            `Create a detailed book outline for the following idea: ${body.prompt}`,
+            'OUTLINER'
+          )
 
-          const bookOutline = completion.choices[0].message.content
+          // Generate content with WRITER
+          const content = await generateWithAgent(
+            `Create the book content following this outline: ${outline}`,
+            'WRITER'
+          )
+
+          // Edit content with EDITOR
+          const editedContent = await generateWithAgent(
+            `Edit and improve this book content: ${content}`,
+            'EDITOR'
+          )
+
+          // Review with CRITIC
+          const review = await generateWithAgent(
+            `Review this book and provide feedback: ${editedContent}`,
+            'CRITIC'
+          )
 
           // Store in Supabase
           const { data: book, error } = await supabase
@@ -67,7 +147,9 @@ export const handler: Handler = async (event, context) => {
             .insert([
               {
                 prompt: body.prompt,
-                outline: bookOutline,
+                outline,
+                content: editedContent,
+                review,
                 status: 'completed'
               }
             ])
